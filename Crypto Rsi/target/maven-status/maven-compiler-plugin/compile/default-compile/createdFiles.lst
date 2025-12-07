@@ -1,7 +1,9 @@
 com\cryptoalert\Main.class
 com\cryptoalert\Utils.class
 com\cryptoalert\RsiCalculator.class
+com\cryptoalert\CoinDCXCandleClient.class
 com\cryptoalert\BinanceClient.class
 com\cryptoalert\CryptoCompareClient.class
 com\cryptoalert\EmailNotifier$1.class
+com\cryptoalert\CoinDCXClient.class
 com\cryptoalert\EmailNotifier.class
