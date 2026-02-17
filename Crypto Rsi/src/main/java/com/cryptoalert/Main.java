@@ -3,8 +3,11 @@ package com.cryptoalert;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.List;
+import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -13,15 +16,15 @@ public class Main {
             cfg.load(in);
         }
 
-        String gmailUser = cfg.getProperty("gmail.username");
-        String gmailAppPassword = cfg.getProperty("gmail.appPassword");
+        String gmailUser = require(cfg, "gmail.username");
+        String gmailAppPassword = require(cfg, "gmail.appPassword");
         String recipient = cfg.getProperty("alert.recipient", gmailUser);
-        int rsiPeriod = Integer.parseInt(cfg.getProperty("rsi.period"));
-        double threshold = Double.parseDouble(cfg.getProperty("rsi.threshold"));
-        int freqMin = Integer.parseInt(cfg.getProperty("scan.frequency.minutes"));
-        int timeout = Integer.parseInt(cfg.getProperty("request.timeout.ms"));
-        int limit = Integer.parseInt(cfg.getProperty("limit.candles"));
-        String interval = cfg.getProperty("interval"); // e.g., "5m"
+        int rsiPeriod = Integer.parseInt(require(cfg, "rsi.period"));
+        double threshold = Double.parseDouble(require(cfg, "rsi.threshold"));
+        int freqMin = Integer.parseInt(require(cfg, "scan.frequency.minutes"));
+        int timeout = Integer.parseInt(require(cfg, "request.timeout.ms"));
+        int limit = Integer.parseInt(require(cfg, "limit.candles"));
+        String interval = require(cfg, "interval");
 
         CoinDCXClient dcx = new CoinDCXClient(timeout);
         CoinDCXCandleClient candleClient = new CoinDCXCandleClient(timeout);
@@ -34,7 +37,6 @@ public class Main {
                 System.out.println("[" + LocalDateTime.now() + "] Starting full CoinDCX scan...");
 
                 List<String> markets = dcx.getAllMarketPairs();
-
                 System.out.println("Found " + markets.size() + " active markets.");
 
                 int processed = 0;
@@ -44,15 +46,9 @@ public class Main {
                 for (String pair : markets) {
                     processed++;
                     try {
-                        // Fetch last 15 candles (1-minute intervals = last 15 minutes)
-                        // RSI(14) calculated from most recent price action
                         List<Double> closes = candleClient.getClosePrices(pair, interval, limit);
-                        if (closes.size() < rsiPeriod + 1) {
-                            failed++;
-                            continue;
-                        }
-                        // RSI calculated from the most recent closes (last ~15 minutes with 1m candles)
                         double rsi = RsiCalculator.computeRsi(closes, rsiPeriod);
+
                         if (rsi > threshold) {
                             alerts++;
                             String subject = "RSI ALERT: " + pair + " RSI=" + String.format("%.2f", rsi);
@@ -64,10 +60,11 @@ public class Main {
                             emailNotifier.sendEmail(subject, body);
                             System.out.println("ALERT SENT for " + pair + " | RSI=" + rsi);
                         }
-                        Thread.sleep(20);
 
+                        Thread.sleep(20);
                     } catch (Exception e) {
                         failed++;
+                        System.err.println("Failed pair " + pair + ": " + e.getMessage());
                     }
 
                     if (processed % 20 == 0) {
@@ -81,6 +78,7 @@ public class Main {
                 System.out.println("Failed: " + failed);
                 System.out.println("Next scan in " + freqMin + " minutes...");
             } catch (Exception e) {
+                System.err.println("Scan job failed: " + e.getMessage());
                 e.printStackTrace();
             }
         };
@@ -88,5 +86,12 @@ public class Main {
         scheduler.scheduleWithFixedDelay(job, 0, freqMin, TimeUnit.MINUTES);
         System.out.println("Scanner started. Running every " + freqMin + " minutes.");
     }
-}
 
+    private static String require(Properties cfg, String key) {
+        String value = cfg.getProperty(key);
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException("Missing required config key: " + key);
+        }
+        return value.trim();
+    }
+}
