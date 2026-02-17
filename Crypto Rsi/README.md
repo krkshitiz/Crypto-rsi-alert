@@ -1,26 +1,59 @@
 # Crypto RSI Alert (Java)
 
-This program fetches 4-hour candles for coins from CryptoCompare, computes RSI(14) on 4h candles, and sends an email if RSI > 85.
+This bot scans CoinDCX markets, computes RSI values, sends email alerts, and exposes web status endpoints for deployment.
 
 ## Setup
 1. Install Java 11+ and Maven.
 2. Clone/copy this project.
-3. Edit `config.properties` and fill:
-   - gmail.username = contactkshitiznow@gmail.com
-   - gmail.appPassword = <your Gmail App Password (create in Google account)>
-   - alert.recipient = <where to send alerts; can be same as gmail.username>
-   - rsi.threshold = 85
-   - binance.interval = 4h
-   - scan.frequency.minutes = 60
-   - cryptocompare.apikey = <YOUR_CRYPTOCOMPARE_API_KEY>
+3. Create local config:
+   ```bash
+   cp config.properties.example config.properties
+   ```
+4. Fill real values in `config.properties`.
 
-4. Run:
-   mvn compile
-   mvn exec:java
+## Run locally
+```bash
+mvn compile
+mvn exec:java
+```
 
-The bot runs indefinitely. To stop press Ctrl+C.
+### Web endpoints
+- `GET /health` → health check JSON.
+- `GET /` → runtime status and last scan counters.
 
-Notes:
-- This project uses CryptoCompare for 4-hour OHLC candles. Place your CryptoCompare API key into `config.properties` as `cryptocompare.apikey` (do NOT paste the key into chat).
-- If you want WhatsApp alerts later, we can add Twilio sandbox integration.
+Default local URL: `http://localhost:8080`.
 
+## Deploy on Render (Docker)
+If Render does not show Java runtime for your account, deploy using Docker.
+
+### Files already included
+- `Dockerfile` (multi-stage build + runnable JAR)
+- `.dockerignore`
+
+### Render settings
+1. New → **Web Service** → connect this repo.
+2. Environment: **Docker**.
+3. Leave build/start commands empty (Render uses Dockerfile).
+4. Add environment variables listed below.
+5. Deploy.
+
+### Required environment variables
+- `GMAIL_USERNAME`
+- `GMAIL_APPPASSWORD`
+- `ALERT_RECIPIENT`
+- `RSI_PERIOD`
+- `RSI_THRESHOLD`
+- `SCAN_FREQUENCY_MINUTES`
+- `REQUEST_TIMEOUT_MS`
+- `LIMIT_CANDLES`
+- `INTERVAL`
+
+Render provides `PORT` automatically.
+
+After deployment, open:
+- `https://<your-app-domain>/health`
+- `https://<your-app-domain>/`
+
+## Notes
+- `config.properties` is gitignored to avoid leaking secrets.
+- Use a Gmail app password for SMTP.
