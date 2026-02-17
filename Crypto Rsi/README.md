@@ -1,61 +1,33 @@
 # Crypto RSI Alert (Java)
 
-This bot scans CoinDCX markets, computes RSI values, sends email alerts, and exposes web status endpoints for deployment.
+This bot scans CoinDCX markets, computes RSI values, and sends email alerts when RSI crosses your configured threshold.
 
 ## Setup
 1. Install Java 11+ and Maven.
 2. Clone/copy this project.
-3. Create local config:
+3. Create your local config from the template:
    ```bash
    cp config.properties.example config.properties
    ```
-4. Fill real values in `config.properties`.
+4. Edit `config.properties` and fill in your real values:
+   - `gmail.username`
+   - `gmail.appPassword` (Gmail App Password)
+   - `alert.recipient`
+   - `rsi.period`
+   - `rsi.threshold`
+   - `scan.frequency.minutes`
+   - `request.timeout.ms`
+   - `limit.candles`
+   - `interval`
 
-## Run locally
+## Run
 ```bash
 mvn compile
 mvn exec:java
 ```
 
-### Web endpoints
-- `GET /health` → health check JSON.
-- `GET /` → runtime status and last scan counters.
-
-Default local URL: `http://localhost:8080`.
-
-## Deploy on Render (Docker)
-If Render does not show Java runtime for your account, deploy using Docker.
-
-> If your Render service uses repository root as build context, this repo now includes a root-level `Dockerfile` so Render can build without changing Root Directory.
-
-### Files already included
-- `Dockerfile` (multi-stage build + runnable JAR)
-- `.dockerignore`
-
-### Render settings
-1. New → **Web Service** → connect this repo.
-2. Environment: **Docker**.
-3. Leave build/start commands empty (Render uses Dockerfile).
-4. Add environment variables listed below.
-5. Deploy.
-
-### Required environment variables
-- `GMAIL_USERNAME`
-- `GMAIL_APPPASSWORD`
-- `ALERT_RECIPIENT`
-- `RSI_PERIOD`
-- `RSI_THRESHOLD`
-- `SCAN_FREQUENCY_MINUTES`
-- `REQUEST_TIMEOUT_MS`
-- `LIMIT_CANDLES`
-- `INTERVAL`
-
-Render provides `PORT` automatically.
-
-After deployment, open:
-- `https://<your-app-domain>/health`
-- `https://<your-app-domain>/`
+The bot runs indefinitely. Press `Ctrl+C` to stop.
 
 ## Notes
-- `config.properties` is gitignored to avoid leaking secrets.
-- Use a Gmail app password for SMTP.
+- `config.properties` is ignored by git to prevent accidental secret commits.
+- Candle data is pulled from CoinDCX public endpoints.
