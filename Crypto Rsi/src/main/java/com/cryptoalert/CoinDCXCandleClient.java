@@ -5,7 +5,8 @@ import org.json.JSONObject;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class CoinDCXCandleClient {
@@ -20,27 +21,30 @@ public class CoinDCXCandleClient {
                 + "?pair=" + pair
                 + "&interval=" + interval
                 + "&limit=" + limit;
-        
+
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("GET");
         conn.setConnectTimeout(timeoutMs);
         conn.setReadTimeout(timeoutMs);
-        
-        Scanner sc = new Scanner(conn.getInputStream());
-        StringBuilder sb = new StringBuilder();
-        while (sc.hasNext()) sb.append(sc.nextLine());
-        sc.close();
-        
-        JSONArray arr = new JSONArray(sb.toString());
+
+        int code = conn.getResponseCode();
+        if (code != HttpURLConnection.HTTP_OK) {
+            throw new RuntimeException("CoinDCX candles endpoint returned HTTP " + code + " for pair " + pair);
+        }
+
+        String response;
+        try (Scanner sc = new Scanner(conn.getInputStream()).useDelimiter("\\A")) {
+            response = sc.hasNext() ? sc.next() : "";
+        }
+
+        JSONArray arr = new JSONArray(response);
         List<Double> closes = new ArrayList<>();
 
-        // API returns newest → oldest, we reverse because RSI needs oldest→newest
-        // Each candle is a JSONObject with fields: open, high, low, volume, close, time
         for (int i = arr.length() - 1; i >= 0; i--) {
             JSONObject candle = arr.getJSONObject(i);
-            closes.add(candle.getDouble("close")); // close price
+            closes.add(candle.getDouble("close"));
         }
 
         return closes;
     }
 }
-
