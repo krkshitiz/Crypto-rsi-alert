@@ -11,8 +11,6 @@ WORKDIR /app
 
 COPY --from=build /app/target/crypto-rsi-alert-1.0-SNAPSHOT.jar /app/app.jar
 
-COPY ["Crypto Rsi/config.properties.example", "/app/config.properties"]
-
 EXPOSE 8080
 
 CMD ["java", "-jar", "/app/app.jar"]
