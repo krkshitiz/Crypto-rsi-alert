@@ -1,94 +1,30 @@
 package com.cryptoalert;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
-
-import java.io.IOException;
+import java.io.FileInputStream;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class Main {
     public static void main(String[] args) throws Exception {
-        Properties cfg = loadConfig();
-
-        AtomicInteger lastProcessed = new AtomicInteger();
-        AtomicInteger lastAlerts = new AtomicInteger();
-        AtomicInteger lastFailed = new AtomicInteger();
-        AtomicReference<String> mode = new AtomicReference<>("starting");
-
-        int freqMin = parseInt(optional(cfg, "scan.frequency.minutes", "5"), 5);
-        double threshold = parseDouble(optional(cfg, "rsi.threshold", "85"), 85);
-        String interval = optional(cfg, "interval", "1m");
-
-        String scannerSetupError = startScannerIfConfigured(
-                cfg,
-                freqMin,
-                threshold,
-                interval,
-                lastProcessed,
-                lastAlerts,
-                lastFailed,
-                mode
-        );
-
-        startWebServer(freqMin, interval, threshold, lastProcessed, lastAlerts, lastFailed, mode, scannerSetupError);
-    }
-
-    private static Properties loadConfig() {
         Properties cfg = new Properties();
-        Path configPath = Paths.get("config.properties");
-
-        if (!Files.exists(configPath)) {
-            System.out.println("config.properties not found at " + configPath.toAbsolutePath() + ". Using environment variables / defaults.");
-            return cfg;
-        }
-
-        try (InputStream in = Files.newInputStream(configPath)) {
+        try (InputStream in = new FileInputStream("config.properties")) {
             cfg.load(in);
-            System.out.println("Loaded configuration from " + configPath.toAbsolutePath());
-        } catch (IOException e) {
-            System.out.println("Unable to read config.properties. Using environment variables / defaults. Reason: " + e.getMessage());
         }
 
-        return cfg;
-    }
-
-    private static String startScannerIfConfigured(
-            Properties cfg,
-            int freqMin,
-            double threshold,
-            String interval,
-            AtomicInteger lastProcessed,
-            AtomicInteger lastAlerts,
-            AtomicInteger lastFailed,
-            AtomicReference<String> mode) {
-
-        String gmailUser = optional(cfg, "gmail.username", null);
-        String gmailAppPassword = optional(cfg, "gmail.appPassword", null);
-        String recipient = optional(cfg, "alert.recipient", gmailUser);
-
-        if (isBlank(gmailUser) || isBlank(gmailAppPassword) || isBlank(recipient)) {
-            mode.set("web_only");
-            String message = "Scanner disabled: set GMAIL_USERNAME, GMAIL_APPPASSWORD and ALERT_RECIPIENT to enable alerts.";
-            System.out.println(message);
-            return message;
-        }
-
-        int rsiPeriod = parseInt(optional(cfg, "rsi.period", "14"), 14);
-        int timeout = parseInt(optional(cfg, "request.timeout.ms", "15000"), 15000);
-        int limit = parseInt(optional(cfg, "limit.candles", "15"), 15);
+        String gmailUser = require(cfg, "gmail.username");
+        String gmailAppPassword = require(cfg, "gmail.appPassword");
+        String recipient = cfg.getProperty("alert.recipient", gmailUser);
+        int rsiPeriod = Integer.parseInt(require(cfg, "rsi.period"));
+        double threshold = Double.parseDouble(require(cfg, "rsi.threshold"));
+        int freqMin = Integer.parseInt(require(cfg, "scan.frequency.minutes"));
+        int timeout = Integer.parseInt(require(cfg, "request.timeout.ms"));
+        int limit = Integer.parseInt(require(cfg, "limit.candles"));
+        String interval = require(cfg, "interval");
 
         CoinDCXClient dcx = new CoinDCXClient(timeout);
         CoinDCXCandleClient candleClient = new CoinDCXCandleClient(timeout);
@@ -136,10 +72,6 @@ public class Main {
                     }
                 }
 
-                lastProcessed.set(processed);
-                lastAlerts.set(alerts);
-                lastFailed.set(failed);
-
                 System.out.println("Scan complete.");
                 System.out.println("Processed: " + processed);
                 System.out.println("Alerts: " + alerts);
@@ -152,89 +84,14 @@ public class Main {
         };
 
         scheduler.scheduleWithFixedDelay(job, 0, freqMin, TimeUnit.MINUTES);
-        mode.set("scanner_running");
         System.out.println("Scanner started. Running every " + freqMin + " minutes.");
-        return null;
     }
 
-    private static void startWebServer(
-            int freqMin,
-            String interval,
-            double threshold,
-            AtomicInteger lastProcessed,
-            AtomicInteger lastAlerts,
-            AtomicInteger lastFailed,
-            AtomicReference<String> mode,
-            String scannerSetupError) throws Exception {
-        int port = parseInt(System.getenv().getOrDefault("PORT", "8080"), 8080);
-        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
-
-        server.createContext("/health", exchange -> writeJson(exchange, "{\"status\":\"ok\"}"));
-        server.createContext("/", exchange -> {
-            String response = "{"
-                    + "\"service\":\"crypto-rsi-alert\"," 
-                    + "\"status\":\"running\"," 
-                    + "\"mode\":\"" + mode.get() + "\"," 
-                    + "\"scan_frequency_minutes\":" + freqMin + ","
-                    + "\"interval\":\"" + interval + "\"," 
-                    + "\"threshold\":" + threshold + ","
-                    + "\"last_processed\":" + lastProcessed.get() + ","
-                    + "\"last_alerts\":" + lastAlerts.get() + ","
-                    + "\"last_failed\":" + lastFailed.get();
-
-            if (scannerSetupError != null) {
-                response += ",\"message\":\"" + scannerSetupError.replace("\"", "'") + "\"";
-            }
-
-            response += "}";
-            writeJson(exchange, response);
-        });
-
-        server.setExecutor(Executors.newSingleThreadExecutor());
-        server.start();
-        System.out.println("Web status endpoint started on port " + port);
-    }
-
-    private static void writeJson(HttpExchange exchange, String body) throws Exception {
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-        exchange.sendResponseHeaders(200, bytes.length);
-        exchange.getResponseBody().write(bytes);
-        exchange.close();
-    }
-
-    private static String optional(Properties cfg, String key, String fallback) {
+    private static String require(Properties cfg, String key) {
         String value = cfg.getProperty(key);
-        if (!isBlank(value)) {
-            return value.trim();
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException("Missing required config key: " + key);
         }
-
-        String envKey = key.toUpperCase().replace('.', '_');
-        String envValue = System.getenv(envKey);
-        if (!isBlank(envValue)) {
-            return envValue.trim();
-        }
-
-        return fallback;
-    }
-
-    private static int parseInt(String raw, int fallback) {
-        try {
-            return Integer.parseInt(raw);
-        } catch (Exception ignored) {
-            return fallback;
-        }
-    }
-
-    private static double parseDouble(String raw, double fallback) {
-        try {
-            return Double.parseDouble(raw);
-        } catch (Exception ignored) {
-            return fallback;
-        }
-    }
-
-    private static boolean isBlank(String text) {
-        return text == null || text.trim().isEmpty();
+        return value.trim();
     }
 }
